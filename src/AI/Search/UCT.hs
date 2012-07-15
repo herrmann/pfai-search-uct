@@ -38,7 +38,7 @@ import Data.List (foldl')
 import Data.Tree
 import Data.Tree.Zipper
 
-import Control.Monad (foldM)
+import Control.Monad (foldM,liftM)
 import Control.Monad.Random (MonadRandom,getRandom,getRandomR)
 
 -- | UCT tree node.
@@ -130,7 +130,7 @@ uctValue logVisits n = do
 update :: Double -- ^ The value from the rollout
   -> FullUctNode -- ^ Leaf node location
   -> FullUctNode -- ^ Updated tree root location
-update val loc = go loc
+update val = go
   where
     go loc' =
       let loc'' = modifyLabel upd loc'
@@ -141,7 +141,7 @@ update val loc = go loc
 
 -- | Dummy rollout function that chooses between victory or defeat at random.
 randomRollOut :: MonadRandom m => FullUctNode -> m Double
-randomRollOut loc = getRandomR (0,1 :: Int) >>= return . fromIntegral
+randomRollOut loc = liftM fromIntegral (getRandomR (0,1 :: Int))
 
 -- | Expands a tree node with a random number of children from 2 to 5.
 randomExpand :: MonadRandom m
