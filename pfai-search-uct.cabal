@@ -1,0 +1,17 @@
+name:                pfai-search-uct
+version:             0.1.0.0
+synopsis:            Implementation of the Upper Confidence bounds applied to Trees (UCT) algorithm
+homepage:            http://github.com/herrmann/pfai-search-uct
+license:             BSD3
+license-file:        LICENSE
+author:              Ricardo Herrmann
+maintainer:          rherrmann@gmail.com
+copyright:           (c) 2012, Ricardo Herrmann
+category:            AI
+build-type:          Simple
+cabal-version:       >=1.8
+
+library
+  exposed-modules:     AI.Search.UCT
+  build-depends:       base ==4.5.*, containers ==0.4.*, rosezipper ==0.2.*, MonadRandom ==0.1.*
+  hs-source-dirs:      src
