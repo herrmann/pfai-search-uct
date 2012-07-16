@@ -28,6 +28,7 @@ module AI.Search.UCT (
   , uct
   , randomExpand
   , randomRollOut
+  , main
   -- * Debugging
   , printTree
   ) where
@@ -39,7 +40,20 @@ import Data.Tree
 import Data.Tree.Zipper
 
 import Control.Monad (foldM,liftM)
-import Control.Monad.Random (MonadRandom,getRandom,getRandomR)
+import Control.Monad.Primitive (PrimMonad,PrimState)
+
+import System.Random.MWC
+
+import System.Environment (getArgs)
+
+-- For testing purposes
+main = do
+  args <- getArgs
+  let trials = read $ head args
+  tree <- withSystemRandom . asGenST $ \gen -> run gen trials
+  print . value $ label tree
+  where
+    run gen trials = uct gen trials emptyLoc
 
 -- | UCT tree node.
 data UctNode = UctNode {
@@ -58,49 +72,55 @@ emptyLoc = fromTree $ Node emptyUctNode []
 epsilon = 0.000001
 
 -- | Runs a number of UCT trials.
-uct :: MonadRandom m
-  => Int           -- ^ Number of trials
-  -> FullUctNode   -- ^ Tree root location
-  -> m FullUctNode -- ^ New tree root location
-uct numTrials loc = foldM (flip ($)) loc actions
+uct :: PrimMonad m
+  => Gen (PrimState m) -- ^ Random number generator
+  -> Int               -- ^ Number of trials
+  -> FullUctNode       -- ^ Tree root location
+  -> m FullUctNode     -- ^ New tree root location
+uct gen numTrials loc = foldM (flip ($)) loc actions
   where
-    actions = replicate numTrials $ selectAction randomExpand randomRollOut
+    actions = replicate numTrials $ selectAction gen randomExpand randomRollOut
 
 -- | Does one round of UCT.
--- MonadRandom is used to break ties randomly in unexpanded nodes.
-selectAction :: MonadRandom m
-  => (FullUctNode -> m FullUctNode) -- ^ Node expansion function
-  -> (FullUctNode -> m Double)      -- ^ Rollout function
-  -> FullUctNode                    -- ^ Tree root location
-  -> m FullUctNode                  -- ^ New tree root location
-selectAction expand rollOut loc = do
-  leaf <- trial loc
-  leaf' <- expand leaf
-  newNode <- select leaf'
-  val <- rollOut newNode
+-- The random number generator is used to break ties randomly in unexpanded nodes.
+selectAction :: PrimMonad m
+  => Gen (PrimState m)                                   -- ^ Random number generator
+  -> (Gen (PrimState m) -> FullUctNode -> m FullUctNode) -- ^ Node expansion function
+  -> (Gen (PrimState m) -> FullUctNode -> m Double)      -- ^ Rollout function
+  -> FullUctNode                                         -- ^ Tree root location
+  -> m FullUctNode                                       -- ^ New tree root location
+selectAction gen expand rollOut loc = do
+  leaf <- trial gen loc
+  leaf' <- expand gen leaf
+  newNode <- select gen leaf'
+  val <- rollOut gen newNode
   let top = update val newNode
   return top
 
 -- | Selects the best node down the tree according to the UCT rule.
-trial :: MonadRandom m
-  => FullUctNode   -- ^ Tree root location
-  -> m FullUctNode -- ^ Location of leaf chosen by UCT
-trial loc
-  | isLeaf loc = return loc
-  | otherwise = do
-    s <- select loc
-    trial s
+trial :: PrimMonad m
+  => Gen (PrimState m) -- ^ Random number generator
+  -> FullUctNode       -- ^ Tree root location
+  -> m FullUctNode     -- ^ Location of leaf chosen by UCT
+trial gen loc = go loc
+  where
+    go loc
+      | isLeaf loc = return loc
+      | otherwise = do
+        loc' <- select gen loc
+        go loc'
 
 -- | Selects the node with best UCT value. Assumes there's at least one child node.
-select :: MonadRandom m
-  => FullUctNode   -- ^ Location of parent node
-  -> m FullUctNode -- ^ Location of child node with best UCT value
-select loc = do
+select :: PrimMonad m
+  => Gen (PrimState m) -- ^ Random number generator
+  -> FullUctNode       -- ^ Location of parent node
+  -> m FullUctNode     -- ^ Location of child node with best UCT value
+select gen loc = do
   let firstNode = fromJust $ firstChild loc
   firstVal <- uctVal firstNode
   go firstNode firstVal (next firstNode)
   where
-    uctVal node = uctValue logVisits $ label node
+    uctVal node = uctValue gen logVisits $ label node
     locVisits = visits $ label loc
     logVisits = log (fromIntegral locVisits + 1)
     go bestNode _ Nothing = return bestNode
@@ -113,12 +133,13 @@ select loc = do
 
 -- | Computes the UCT value of a node.
 {-# INLINE uctValue #-}
-uctValue :: MonadRandom m
-  => Double   -- ^ log(parent node visits + 1)
-  -> UctNode  -- ^ UCT node info
-  -> m Double -- ^ UCT value of the node
-uctValue logVisits n = do
-  c <- getRandom
+uctValue :: PrimMonad m
+  => Gen (PrimState m) -- ^ Random number generator
+  -> Double            -- ^ log(parent node visits + 1)
+  -> UctNode           -- ^ UCT node info
+  -> m Double          -- ^ UCT value of the node
+uctValue gen logVisits n = do
+  c <- uniform gen
   let val = a + b + c * epsilon
   return $! val
   where
@@ -140,15 +161,16 @@ update val = go
         Just l -> go l
 
 -- | Dummy rollout function that chooses between victory or defeat at random.
-randomRollOut :: MonadRandom m => FullUctNode -> m Double
-randomRollOut loc = liftM fromIntegral (getRandomR (0,1 :: Int))
+randomRollOut :: (Num a, PrimMonad m) => Gen (PrimState m) -> t -> m a
+randomRollOut gen loc = liftM fromIntegral (uniformR (0,1 :: Int) gen)
 
 -- | Expands a tree node with a random number of children from 2 to 5.
-randomExpand :: MonadRandom m
-  => FullUctNode -- ^ Location of parent node
+randomExpand :: PrimMonad m
+  => Gen (PrimState m) -- ^ Random number generator
+  -> FullUctNode -- ^ Location of parent node
   -> m FullUctNode -- ^ Location of expanded parent node
-randomExpand loc = do
-  n <- getRandomR (2,5)
+randomExpand gen loc = do
+  n <- uniformR (2,5) gen
   return . fromJust . parent $ last n
   where
     last n = foldl' f loc (zip (replicate n emptyUctNode) moves)
