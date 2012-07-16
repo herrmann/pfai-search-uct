@@ -134,7 +134,13 @@ childrenValues gen loc = mapM eval $ locChildren loc
       return $! NodeValue loc value
 
 {-# INLINE locChildren #-}
-locChildren = map fromJust . takeWhile isJust . iterate maybeNext . firstChild
+locChildren loc = first : siblings first
+  where
+    first = fromJust $ firstChild loc
+    siblings l =
+      case next l of
+        Nothing -> []
+        Just l' -> l' : siblings l'
 
 cmp n1@(NodeValue _ v1) n2@(NodeValue _ v2)
   | v1 > v2   = return $! n1
@@ -142,9 +148,6 @@ cmp n1@(NodeValue _ v1) n2@(NodeValue _ v2)
 
 foldM1 _ [] = error "foldM1" "empty list"
 foldM1 f (x:xs) = foldM f x xs
-
-maybeNext Nothing = Nothing
-maybeNext (Just loc) = next loc
 
 -- | Computes the UCT value of a node.
 {-# INLINE uctValue #-}
