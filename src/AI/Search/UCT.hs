@@ -33,7 +33,7 @@ module AI.Search.UCT (
   , printTree
   ) where
 
-import Data.Maybe (fromJust)
+import Data.Maybe (fromJust,isJust)
 import Data.List (foldl')
 
 import Data.Tree
@@ -116,20 +116,34 @@ select :: PrimMonad m
   -> FullUctNode       -- ^ Location of parent node
   -> m FullUctNode     -- ^ Location of child node with best UCT value
 select gen loc = do
-  let firstNode = fromJust $ firstChild loc
-  firstVal <- uctVal firstNode
-  go firstNode firstVal (next firstNode)
+  nodeValues <- childrenValues gen loc
+  best <- bestNode nodeValues
+  return $! node best
+
+data NodeValue = NodeValue { node :: !FullUctNode, val :: !Double }
+
+bestNode :: Monad m => [NodeValue] -> m NodeValue
+bestNode = foldM1 cmp
+
+childrenValues gen loc = mapM eval $ locChildren loc
   where
-    uctVal node = uctValue gen logVisits $ label node
-    locVisits = visits $ label loc
-    logVisits = log (fromIntegral locVisits + 1)
-    go bestNode _ Nothing = return bestNode
-    go bestNode bestVal (Just newNode) = do
-      newVal <- uctVal newNode
-      let nextNode = next newNode
-      if newVal > bestVal
-        then go newNode newVal nextNode
-        else go bestNode bestVal nextNode
+    uctVal = uctValue gen parentVisits . label
+    parentVisits = log (fromIntegral (visits $ label loc) + 1)
+    eval loc = do
+      value <- uctVal loc
+      return $! NodeValue loc value
+
+locChildren = map fromJust . takeWhile isJust . iterate maybeNext . firstChild
+
+cmp n1@(NodeValue _ v1) n2@(NodeValue _ v2)
+  | v1 > v2   = return $! n1
+  | otherwise = return $! n2
+
+foldM1 _ [] = error "foldM1" "empty list"
+foldM1 f (x:xs) = foldM f x xs
+
+maybeNext Nothing = Nothing
+maybeNext (Just loc) = next loc
 
 -- | Computes the UCT value of a node.
 {-# INLINE uctValue #-}
