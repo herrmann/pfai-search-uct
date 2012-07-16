@@ -133,6 +133,7 @@ childrenValues gen loc = mapM eval $ locChildren loc
       value <- uctVal loc
       return $! NodeValue loc value
 
+{-# INLINE locChildren #-}
 locChildren = map fromJust . takeWhile isJust . iterate maybeNext . firstChild
 
 cmp n1@(NodeValue _ v1) n2@(NodeValue _ v2)
