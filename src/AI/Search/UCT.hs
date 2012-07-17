@@ -39,6 +39,7 @@ import Data.List (foldl')
 import Data.Tree
 import Data.Tree.Zipper
 
+import Control.Monad (foldM,liftM)
 import Control.Monad.Primitive (PrimMonad,PrimState)
 
 import System.Random.MWC
@@ -115,35 +116,19 @@ select :: PrimMonad m
   -> FullUctNode       -- ^ Location of parent node
   -> m FullUctNode     -- ^ Location of child node with best UCT value
 select gen loc = do
-  nodeValues <- values $ firstChild loc
-  best <- bestNode nodeValues
-  return $! node best
+  let firstNode = fromJust $ firstChild loc
+  firstValue <- uctVal firstNode
+  choose firstNode firstValue (next firstNode)
   where
-    bestNode = foldM1 cmp
     uctVal = uctValue gen parentVisits . label
-    parentVisits = log (fromIntegral (visits $ label loc) + 1)
-    values Nothing = return []
-    values (Just l) = do
-      value <- uctVal l
-      vs <- values $ next l
-      return $! (NodeValue l value : vs)
-
-data NodeValue = NodeValue { node :: !FullUctNode, val :: !Double }
-
-{-# INLINE cmp #-}
-cmp n1@(NodeValue _ v1) n2@(NodeValue _ v2)
-  | v1 > v2   = return $! n1
-  | otherwise = return $! n2
-
-foldM1 _ [] = error "foldM1" "empty list"
-foldM1 f (x:xs) = foldM f x xs
-
-foldM _ a [] = return a
-foldM f a (x:xs) = do
-  fax <- f a x
-  foldM f fax xs
-
-liftM f m = m >>= return . f
+    parentVisits = log $ fromIntegral (visits $ label loc) + 1
+    choose bestNode _ Nothing = return $ bestNode
+    choose bestNode bestValue (Just newNode) = do
+      newValue <- uctVal newNode
+      let nextNode = next newNode
+      if newValue > bestValue
+        then choose newNode newValue nextNode
+        else choose bestNode bestValue nextNode
 
 -- | Computes the UCT value of a node.
 {-# INLINE uctValue #-}
