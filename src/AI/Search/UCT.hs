@@ -110,37 +110,55 @@ trial gen loc = go loc
         loc' <- select gen loc
         go loc'
 
--- | Selects the node with best UCT value. Assumes there's at least one child node.
+-- | Selects a node according to the UCB rule. Assumes there's at least one child node.
 select :: PrimMonad m
   => Gen (PrimState m) -- ^ Random number generator
   -> FullUctNode       -- ^ Location of parent node
-  -> m FullUctNode     -- ^ Location of child node with best UCT value
-select gen loc = do
-  let firstNode = fromJust $ firstChild loc
-  firstValue <- uctVal firstNode
-  choose firstNode firstValue (next firstNode)
+  -> m FullUctNode     -- ^ Location of child node selected by UCB
+select gen loc = case unvisitedChildren loc of
+  nodes@(_:_) -> randomElement gen nodes
+  [] -> return $! choose firstNode firstValue (next firstNode)
+    where
+      firstNode = fromJust $ firstChild loc
+      firstValue = uctVal firstNode
+      uctVal = uctValue parentVisits . label
+      parentVisits = log $ fromIntegral (visits $ label loc) + 1
+      choose bestNode _ Nothing = bestNode
+      choose bestNode bestValue (Just newNode) =
+        let newValue = uctVal newNode
+            nextNode = next newNode
+        in if newValue > bestValue
+          then choose newNode newValue nextNode
+          else choose bestNode bestValue nextNode
+
+-- | Randomly selects one element of the list
+randomElement :: PrimMonad m
+  => Gen (PrimState m) -- ^ Random number generator
+  -> [a]               -- ^ List of elements to choose
+  -> m a               -- ^ chosen element
+randomElement gen es = do
+  let len = length es
+  i <- uniformR (0 :: Int, len - 1) gen
+  return $ es !! i
+
+-- | Lists the unvisited children of a parent node location
+unvisitedChildren
+  :: FullUctNode   -- ^ Location of parent node
+  -> [FullUctNode] -- ^ List of unvisited children
+unvisitedChildren loc = go $ firstChild loc
   where
-    uctVal = uctValue gen parentVisits . label
-    parentVisits = log $ fromIntegral (visits $ label loc) + 1
-    choose bestNode _ Nothing = return $ bestNode
-    choose bestNode bestValue (Just newNode) = do
-      newValue <- uctVal newNode
-      let nextNode = next newNode
-      if newValue > bestValue
-        then choose newNode newValue nextNode
-        else choose bestNode bestValue nextNode
+    go Nothing = []
+    go (Just l)
+      | visits (label l) > 0 = go $ next l
+      | otherwise = l : go (next l)
 
 -- | Computes the UCT value of a node.
 {-# INLINE uctValue #-}
-uctValue :: PrimMonad m
-  => Gen (PrimState m) -- ^ Random number generator
-  -> Double            -- ^ log(parent node visits + 1)
-  -> UctNode           -- ^ UCT node info
-  -> m Double          -- ^ UCT value of the node
-uctValue gen logVisits n = do
-  c <- uniform gen
-  let val = a + b + c * epsilon
-  return $! val
+uctValue
+  :: Double  -- ^ log(parent node visits + 1)
+  -> UctNode -- ^ UCT node info
+  -> Double  -- ^ UCT value of the node
+uctValue logVisits n = a + b
   where
     a = value n / (v + epsilon)
     b = sqrt (logVisits / (v + epsilon))
