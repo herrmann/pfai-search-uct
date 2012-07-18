@@ -69,8 +69,6 @@ emptyUctNode = UctNode 0 0.0
 emptyLoc :: FullUctNode
 emptyLoc = fromTree $ Node emptyUctNode []
 
-epsilon = 0.000001
-
 -- | Runs a number of UCT trials.
 uct :: PrimMonad m
   => Gen (PrimState m) -- ^ Random number generator
@@ -158,10 +156,8 @@ uctValue
   :: Double  -- ^ log(parent node visits + 1)
   -> UctNode -- ^ UCT node info
   -> Double  -- ^ UCT value of the node
-uctValue logVisits n = a + b
+uctValue logVisits n = value n / v + sqrt (logVisits / v)
   where
-    a = value n / (v + epsilon)
-    b = sqrt (logVisits / (v + epsilon))
     v = fromIntegral $ visits n
 
 -- | Updates node values from leaf to root
